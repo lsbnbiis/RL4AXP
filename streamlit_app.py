@@ -42,7 +42,7 @@ def _init_shared() -> dict:
         "framework": None,
     }
 
-for _key, _default in [("shared", _init_shared()), ("stop_event", threading.Event()), ("training_thread", None)]:
+for _key, _default in [("shared", _init_shared()), ("stop_event", threading.Event()), ("training_thread", None), ("confirm_reset", False)]:
     if _key not in st.session_state: st.session_state[_key] = _default
 
 def _training_worker(shared: dict, stop_event: threading.Event, resume_framework=None) -> None:
@@ -158,6 +158,10 @@ with st.sidebar:
 
     st.title("Peptide Optimizer")
 
+    status = st.session_state.shared["status"]
+    is_active = status in ("initializing", "running")
+    training_started = status != "idle"
+
     st.divider()
     _lbl_col, _inp_col = st.columns([1, 2])
     with _lbl_col:
@@ -167,6 +171,7 @@ with st.sidebar:
             "Target Peptide",
             value=config.TARGET_PEPTIDE,
             label_visibility="collapsed",
+            disabled=training_started,
         ).strip().upper()
 
     peptide_err = _validate_peptide(target_peptide)
@@ -178,13 +183,13 @@ with st.sidebar:
     _axp_cols = st.columns([1, 1, 1, 1, 1.4])
     for i, m in enumerate(["ACP", "AFP", "AMP", "AVP"]):
         with _axp_cols[i]:
-            if st.checkbox(m, value=(m in config.REWARD_MODELS), key=f"chk_{m}"):
+            if st.checkbox(m, value=(m in config.REWARD_MODELS), key=f"chk_{m}", disabled=training_started):
                 selected_models.append(m)
     with _axp_cols[4]:
         st.markdown("<div style='text-align:right;color:#888;padding-top:9px'>▲ maximise</div>", unsafe_allow_html=True)
     _hem_col, _hem_lbl = st.columns([4, 1.4])
     with _hem_col:
-        if st.checkbox("Hemolysis", value=("HEM" in config.REWARD_MODELS), key="chk_HEM"):
+        if st.checkbox("Hemolysis", value=("HEM" in config.REWARD_MODELS), key="chk_HEM", disabled=training_started):
             selected_models.append("HEM")
     with _hem_lbl:
         st.markdown("<div style='text-align:right;color:#888;padding-top:9px'>▼ minimise</div>", unsafe_allow_html=True)
@@ -201,6 +206,7 @@ with st.sidebar:
             value=float(config.HEM_CONCENTRATION),
             min_value=0.2, max_value=250.0, step=1.0, format="%.1f",
             label_visibility="collapsed",
+            disabled=training_started,
         )
 
     st.divider()
@@ -210,15 +216,15 @@ with st.sidebar:
             c1.markdown(label)
             return c2
 
-        n_episodes   = _row("N_EPISODES").number_input("N_EPISODES", value=int(config.N_EPISODES), min_value=1, step=1000, label_visibility="collapsed")
-        time_horizon = _row("TIME_HORIZON").number_input("TIME_HORIZON", value=int(config.TIME_HORIZON), min_value=1, step=1, label_visibility="collapsed")
+        n_episodes   = _row("N_EPISODES").number_input("N_EPISODES", value=int(config.N_EPISODES), min_value=1, step=1000, label_visibility="collapsed", disabled=training_started)
+        time_horizon = _row("TIME_HORIZON").number_input("TIME_HORIZON", value=int(config.TIME_HORIZON), min_value=1, step=1, label_visibility="collapsed", disabled=training_started)
         enc_idx      = ENCODING_OPTIONS.index(config.ENCODING_SCHEME) if config.ENCODING_SCHEME in ENCODING_OPTIONS else 3
-        encoding_scheme = _row("ENCODING_SCHEME").selectbox("ENCODING_SCHEME", options=ENCODING_OPTIONS, index=enc_idx, label_visibility="collapsed")
-        lr           = _row("AGENTS_LR").number_input("AGENTS_LR", value=float(config.AGENTS_LR), min_value=0.0, step=1e-6, format="%.2e", label_visibility="collapsed")
-        lr_step      = _row("AGENTS_LR_STEP_SIZE").number_input("AGENTS_LR_STEP_SIZE", value=int(config.AGENTS_LR_STEP_SIZE), min_value=1, step=1, label_visibility="collapsed")
-        lr_gamma     = _row("AGENTS_LR_GAMMA").number_input("AGENTS_LR_GAMMA", value=float(config.AGENTS_LR_GAMMA), min_value=0.0, max_value=1.0, step=0.01, format="%.2f", label_visibility="collapsed")
-        n_parallels  = _row("N_PARALLELS").number_input("N_PARALLELS", value=int(config.N_PARALLELS), min_value=1, step=50, label_visibility="collapsed")
-        random_seed  = _row("RANDOM_SEED").number_input("RANDOM_SEED", value=int(config.RANDOM_SEED), min_value=0, step=1, label_visibility="collapsed")
+        encoding_scheme = _row("ENCODING_SCHEME").selectbox("ENCODING_SCHEME", options=ENCODING_OPTIONS, index=enc_idx, label_visibility="collapsed", disabled=training_started)
+        lr           = _row("AGENTS_LR").number_input("AGENTS_LR", value=float(config.AGENTS_LR), min_value=0.0, step=1e-6, format="%.2e", label_visibility="collapsed", disabled=training_started)
+        lr_step      = _row("AGENTS_LR_STEP_SIZE").number_input("AGENTS_LR_STEP_SIZE", value=int(config.AGENTS_LR_STEP_SIZE), min_value=1, step=1, label_visibility="collapsed", disabled=training_started)
+        lr_gamma     = _row("AGENTS_LR_GAMMA").number_input("AGENTS_LR_GAMMA", value=float(config.AGENTS_LR_GAMMA), min_value=0.0, max_value=1.0, step=0.01, format="%.2f", label_visibility="collapsed", disabled=training_started)
+        n_parallels  = _row("N_PARALLELS").number_input("N_PARALLELS", value=int(config.N_PARALLELS), min_value=1, step=50, label_visibility="collapsed", disabled=training_started)
+        random_seed  = _row("RANDOM_SEED").number_input("RANDOM_SEED", value=int(config.RANDOM_SEED), min_value=0, step=1, label_visibility="collapsed", disabled=training_started)
 
     hparams = {
         "N_EPISODES": n_episodes, "TIME_HORIZON": time_horizon, "ENCODING_SCHEME": encoding_scheme,
@@ -227,9 +233,7 @@ with st.sidebar:
         "HEM_CONCENTRATION": hem_concentration,
     }
 
-    status = st.session_state.shared["status"]
-    is_active = status in ("initializing", "running")
-    can_start = bool(target_peptide) and not peptide_err and len(selected_models) >= 1 and not is_active
+    can_start = bool(target_peptide) and not peptide_err and len(selected_models) >= 1 and not is_active and not (training_started and status not in ("stopped",))
 
     st.divider()
     if st.button("Start Training", disabled=not can_start, width="stretch", type="primary"):
@@ -240,6 +244,24 @@ with st.sidebar:
         if st.button("Stop Training", width="stretch"):
             st.session_state.stop_event.set()
             st.rerun()
+
+    if training_started:
+        if not st.session_state.confirm_reset:
+            if st.button("New Training", width="stretch"):
+                st.session_state.confirm_reset = True
+                st.rerun()
+        else:
+            st.warning("Starting a new training will discard all current progress. The training data will no longer be downloadable from this interface.")
+            _cr1, _cr2 = st.columns(2)
+            if _cr1.button("Confirm", type="primary", use_container_width=True):
+                if is_active:
+                    st.session_state.stop_event.set()
+                st.session_state.shared = _init_shared()
+                st.session_state.confirm_reset = False
+                st.rerun()
+            if _cr2.button("Cancel", use_container_width=True):
+                st.session_state.confirm_reset = False
+                st.rerun()
 
     results_df: pd.DataFrame | None = st.session_state.shared.get("results_df")
     dl_disabled = results_df is None or len(results_df) == 0

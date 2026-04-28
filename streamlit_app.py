@@ -15,6 +15,13 @@ st.set_page_config(
     layout="wide", initial_sidebar_state="expanded",
 )
 
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] { width: 420px !important; }
+section[data-testid="stSidebar"] > div:first-child { width: 420px !important; }
+</style>
+""", unsafe_allow_html=True)
+
 AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
 ALL_MODELS = ["ACP", "AFP", "AMP", "AVP", "HEM"]
 MODEL_DESCRIPTIONS = {
@@ -24,6 +31,7 @@ MODEL_DESCRIPTIONS = {
     "AVP": "Antiviral (maximise)",
     "HEM": "Hemolysis (minimise)"
 }
+ENCODING_OPTIONS = ["One-Hot_Encoding", "Compressive_Sensing", "PepBERT-small", "PepBERT-large"]
 
 def _init_shared() -> dict:
 
@@ -31,12 +39,13 @@ def _init_shared() -> dict:
     {   # idle | initializing | running | done | stopped | error
         "status": "idle", "episode": 0, "n_episodes": config.N_EPISODES,
         "results_df": None, "loss_data": None, "lr_data": None, "save_dir": None, "error": None,
+        "framework": None,
     }
 
 for _key, _default in [("shared", _init_shared()), ("stop_event", threading.Event()), ("training_thread", None)]:
     if _key not in st.session_state: st.session_state[_key] = _default
 
-def _training_worker(shared: dict, stop_event: threading.Event) -> None:
+def _training_worker(shared: dict, stop_event: threading.Event, resume_framework=None) -> None:
 
     try:
 
@@ -45,7 +54,14 @@ def _training_worker(shared: dict, stop_event: threading.Event) -> None:
         # Import here so config mutations applied in the main thread take effect.
         from peptide_optimization.framework import Framework
 
-        framework = Framework()
+        if resume_framework is None:
+            framework = Framework()
+            resume = False
+        else:
+            framework = resume_framework
+            resume = True
+
+        shared["framework"] = framework
         shared["save_dir"] = framework.save_dir
         shared["n_episodes"] = config.N_EPISODES
         shared["status"] = "running"
@@ -57,7 +73,7 @@ def _training_worker(shared: dict, stop_event: threading.Event) -> None:
             shared["loss_data"] = loss_data
             shared["lr_data"] = lr_data
 
-        framework.train(on_episode_end=_on_episode_end, stop_event=stop_event)
+        framework.train(on_episode_end=_on_episode_end, stop_event=stop_event, resume=resume)
 
         shared["results_df"] = framework.exp_results_df.copy()
         shared["status"] = "stopped" if stop_event.is_set() else "done"
@@ -79,7 +95,31 @@ def _smooth(values: list[float], sigma: int) -> list[float]:
 
     return gaussian_filter1d(values, sigma=sigma).tolist() if len(values) > 3 else values
 
-def _start_training(target: str, models: list[str], n_ep: int) -> None:
+def _top_axp_sequences(df: pd.DataFrame, n: int = 30) -> pd.DataFrame:
+
+    prob_cols = [c for c in df.columns if c.endswith("-Prob_T")]
+    axp_cols = [c for c in prob_cols if not c.startswith("HEM")]
+    hem_col = "HEM-Prob_T" if "HEM-Prob_T" in df.columns else None
+    heuristic_col = "Heuristic_T" if "Heuristic_T" in df.columns else None
+
+    # Convert to float only for scoring — do NOT modify original columns
+    probs_float = df[prob_cols].astype(float)
+    axp_avg = probs_float[axp_cols].mean(axis=1) if axp_cols else pd.Series(0.0, index=df.index)
+    hem_float = probs_float[hem_col] if hem_col else pd.Series(0.0, index=df.index)
+    heuristic_float = df[heuristic_col].astype(float) if heuristic_col else pd.Series(0.0, index=df.index)
+
+    score = axp_avg - hem_float + heuristic_float
+
+    return (
+        df.assign(_score=score)
+          .sort_values("_score", ascending=False)
+          .drop_duplicates(subset=["Peptide_T"])
+          .head(n)
+          .drop(columns=["_score"])
+          .reset_index(drop=True)
+    )
+
+def _start_training(target: str, models: list[str], hparams: dict) -> None:
 
     thread = st.session_state.training_thread
 
@@ -87,17 +127,28 @@ def _start_training(target: str, models: list[str], n_ep: int) -> None:
         st.session_state.stop_event.set()
         thread.join(timeout=10)
 
+    prev_status = st.session_state.shared["status"]
+    prev_framework = st.session_state.shared.get("framework")
+    prev_results_df = st.session_state.shared.get("results_df")
+    resume = prev_status == "stopped" and prev_framework is not None
+
     config.TARGET_PEPTIDE = target
     config.REWARD_MODELS = models
-    config.N_EPISODES = n_ep
+    for key, val in hparams.items():
+        setattr(config, key, val)
+    config.BUFFER_SIZE = 2048 * config.TIME_HORIZON
 
     st.session_state.shared = _init_shared()
+    if resume:
+        st.session_state.shared["results_df"] = prev_results_df
+        st.session_state.shared["episode"] = getattr(prev_framework, "episode", 0)
+
     stop_event = threading.Event()
     st.session_state.stop_event = stop_event
 
     t = threading.Thread(
         target=_training_worker,
-        args=(st.session_state.shared, stop_event),
+        args=(st.session_state.shared, stop_event, prev_framework if resume else None),
         daemon=True,
     )
     t.start()
@@ -108,25 +159,73 @@ with st.sidebar:
     st.title("Peptide Optimizer")
 
     st.divider()
-    st.title("Target Peptide Sequence")
-
-    target_peptide = st.text_input(
-        "Target Peptide Sequence",
-        value=config.TARGET_PEPTIDE,
-        label_visibility="collapsed",
-    ).strip().upper()
+    _lbl_col, _inp_col = st.columns([1, 2])
+    with _lbl_col:
+        st.subheader("Target Peptide")
+    with _inp_col:
+        target_peptide = st.text_input(
+            "Target Peptide",
+            value=config.TARGET_PEPTIDE,
+            label_visibility="collapsed",
+        ).strip().upper()
 
     peptide_err = _validate_peptide(target_peptide)
     if peptide_err: st.error(peptide_err)
 
     st.divider()
-    st.title("Reward Models")
+    st.subheader("Reward Models")
     selected_models = []
-    for m in ALL_MODELS:
-        if st.checkbox(MODEL_DESCRIPTIONS[m], value=(m in config.REWARD_MODELS), key=f"chk_{m}"):
-            selected_models.append(m)
+    _axp_cols = st.columns([1, 1, 1, 1, 1.4])
+    for i, m in enumerate(["ACP", "AFP", "AMP", "AVP"]):
+        with _axp_cols[i]:
+            if st.checkbox(m, value=(m in config.REWARD_MODELS), key=f"chk_{m}"):
+                selected_models.append(m)
+    with _axp_cols[4]:
+        st.markdown("<div style='text-align:right;color:#888;padding-top:9px'>▲ maximise</div>", unsafe_allow_html=True)
+    _hem_col, _hem_lbl = st.columns([4, 1.4])
+    with _hem_col:
+        if st.checkbox("Hemolysis", value=("HEM" in config.REWARD_MODELS), key="chk_HEM"):
+            selected_models.append("HEM")
+    with _hem_lbl:
+        st.markdown("<div style='text-align:right;color:#888;padding-top:9px'>▼ minimise</div>", unsafe_allow_html=True)
 
     if not selected_models: st.error("Select at least one reward model.")
+
+    st.divider()
+    _lbl_col2, _inp_col2 = st.columns([1.3, 1])
+    with _lbl_col2:
+        st.subheader("Hemolysis Concentration")
+    with _inp_col2:
+        hem_concentration = st.number_input(
+            "",
+            value=float(config.HEM_CONCENTRATION),
+            min_value=0.2, max_value=250.0, step=1.0, format="%.1f",
+            label_visibility="collapsed",
+        )
+
+    st.divider()
+    with st.expander("Advanced Hyperparameters"):
+        def _row(label):
+            c1, c2 = st.columns([1, 1], vertical_alignment="center")
+            c1.markdown(label)
+            return c2
+
+        n_episodes   = _row("N_EPISODES").number_input("N_EPISODES", value=int(config.N_EPISODES), min_value=1, step=1000, label_visibility="collapsed")
+        time_horizon = _row("TIME_HORIZON").number_input("TIME_HORIZON", value=int(config.TIME_HORIZON), min_value=1, step=1, label_visibility="collapsed")
+        enc_idx      = ENCODING_OPTIONS.index(config.ENCODING_SCHEME) if config.ENCODING_SCHEME in ENCODING_OPTIONS else 3
+        encoding_scheme = _row("ENCODING_SCHEME").selectbox("ENCODING_SCHEME", options=ENCODING_OPTIONS, index=enc_idx, label_visibility="collapsed")
+        lr           = _row("AGENTS_LR").number_input("AGENTS_LR", value=float(config.AGENTS_LR), min_value=0.0, step=1e-6, format="%.2e", label_visibility="collapsed")
+        lr_step      = _row("AGENTS_LR_STEP_SIZE").number_input("AGENTS_LR_STEP_SIZE", value=int(config.AGENTS_LR_STEP_SIZE), min_value=1, step=1, label_visibility="collapsed")
+        lr_gamma     = _row("AGENTS_LR_GAMMA").number_input("AGENTS_LR_GAMMA", value=float(config.AGENTS_LR_GAMMA), min_value=0.0, max_value=1.0, step=0.01, format="%.2f", label_visibility="collapsed")
+        n_parallels  = _row("N_PARALLELS").number_input("N_PARALLELS", value=int(config.N_PARALLELS), min_value=1, step=50, label_visibility="collapsed")
+        random_seed  = _row("RANDOM_SEED").number_input("RANDOM_SEED", value=int(config.RANDOM_SEED), min_value=0, step=1, label_visibility="collapsed")
+
+    hparams = {
+        "N_EPISODES": n_episodes, "TIME_HORIZON": time_horizon, "ENCODING_SCHEME": encoding_scheme,
+        "AGENTS_LR": lr, "AGENTS_LR_STEP_SIZE": lr_step, "AGENTS_LR_GAMMA": lr_gamma,
+        "N_PARALLELS": n_parallels, "RANDOM_SEED": random_seed,
+        "HEM_CONCENTRATION": hem_concentration,
+    }
 
     status = st.session_state.shared["status"]
     is_active = status in ("initializing", "running")
@@ -134,7 +233,7 @@ with st.sidebar:
 
     st.divider()
     if st.button("Start Training", disabled=not can_start, width="stretch", type="primary"):
-        _start_training(target_peptide, selected_models, config.N_EPISODES)
+        _start_training(target_peptide, selected_models, hparams)
         st.rerun()
 
     if is_active:
@@ -145,9 +244,17 @@ with st.sidebar:
     results_df: pd.DataFrame | None = st.session_state.shared.get("results_df")
     dl_disabled = results_df is None or len(results_df) == 0
     st.download_button(
-        label="Download Training Logs (CSV)",
+        label="Download Training Logs",
         data=results_df.to_csv(index=False).encode("utf-8") if not dl_disabled else b"",
         file_name="training_logs.csv",
+        mime="text/csv",
+        disabled=dl_disabled,
+        width="stretch",
+    )
+    st.download_button(
+        label="Download Top 30 Sequences",
+        data=_top_axp_sequences(results_df).to_csv(index=False).encode("utf-8") if not dl_disabled else b"",
+        file_name="top30_sequences.csv",
         mime="text/csv",
         disabled=dl_disabled,
         width="stretch",

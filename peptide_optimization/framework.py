@@ -30,14 +30,18 @@ class Framework:
             columns=["Episode", "Peptide_T"] + prob_cols + ["Heuristic_T", "Cumulative-Reward", "Action1s", "Action2s"]
         )
 
-    def train(self, on_episode_end=None, stop_event=None) -> None:
+    def train(self, on_episode_end=None, stop_event=None, resume: bool = False) -> None:
 
-        self.loss_func_data = {"actor1_loss": [], "actor2_loss": [], "critic_loss": [], "entropy1": [], "entropy2": []}
-        self.lr_data = []
-
-        with tqdm(total=config.N_EPISODES, desc="Training Peptide Optimizer", unit="episode") as bar:
-
+        if not resume:
             self.episode = 0
+            self.loss_func_data = {"actor1_loss": [], "actor2_loss": [], "critic_loss": [], "entropy1": [], "entropy2": []}
+            self.lr_data = []
+        elif not hasattr(self, "loss_func_data"):
+            self.loss_func_data = {"actor1_loss": [], "actor2_loss": [], "critic_loss": [], "entropy1": [], "entropy2": []}
+            self.lr_data = []
+
+        with tqdm(total=config.N_EPISODES, initial=self.episode, desc="Training Peptide Optimizer", unit="episode") as bar:
+
             while self.episode < config.N_EPISODES:
 
                 if stop_event is not None and stop_event.is_set():

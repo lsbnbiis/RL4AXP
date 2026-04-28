@@ -11,7 +11,7 @@ from peptide_optimization.design_rules_v2_1 import soft_rule_features, hard_filt
 
 _PROB_FNS = {
     "AMP": get_amp_probs,
-    "HEM": get_hem_probs,
+    "HEM": lambda peptides: get_hem_probs(peptides, [config.HEM_CONCENTRATION] * len(peptides)),
     "ACP": get_acp_probs,
     "AFP": get_afp_probs,
     "AVP": get_avp_probs,

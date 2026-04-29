@@ -62,7 +62,42 @@ Configuration is in [config.py](config.py). Logs and checkpoints are saved to `p
 streamlit run streamlit_app.py
 ```
 
-The dashboard allows real-time monitoring of reward curves, peptide sequences, and prediction scores during training.
+![Streamlit Dashboard Demo](demo.png)
+
+The dashboard provides a real-time training interface with full control over the optimization run.
+
+#### Sidebar Controls
+
+| Section | Description |
+|---------|-------------|
+| **Target Peptide** | Seed amino-acid sequence to start optimization from. Must contain only standard amino acids (A–Y). |
+| **Reward Models** | Toggle which activity classifiers are active. ACP / AFP / AMP / AVP are maximised; Hemolysis (HEM) is minimised. |
+| **Hemolysis Concentration** | Peptide concentration (μg/mL) passed to the HEM predictor. Range: 0.2–250. Default: 50.0. |
+| **Advanced Hyperparameters** | Fine-tune N_EPISODES, TIME_HORIZON, ENCODING_SCHEME, AGENTS_LR, AGENTS_LR_STEP_SIZE, AGENTS_LR_GAMMA, N_PARALLELS, and RANDOM_SEED before starting. |
+
+> All sidebar controls are locked once training starts. Use **New Training** to reset.
+
+#### Buttons
+
+| Button | Available when | Action |
+|--------|---------------|--------|
+| **Start Training** | Idle or Stopped | Starts a new run (Idle) or resumes from the last checkpoint (Stopped). |
+| **Stop Training** | Training in progress | Pauses the run; progress is preserved and resumable. |
+| **New Training** | Any non-idle state | Resets all progress and re-enables the sidebar. **Note:** unsaved training data will no longer be downloadable from this interface. |
+
+#### Live Charts
+
+- **Cumulative Reward** — smoothed episode reward over time.
+- **Model Probabilities** — per-model prediction scores (HEM shown as dotted line).
+- **Heuristic Score** — physicochemical rule score of the optimized peptide.
+- **Loss Curves** — actor, critic, and entropy losses plus learning rate.
+
+#### Downloads
+
+| Button | Content |
+|--------|---------|
+| **Download Training Logs** | Full CSV log of every episode (sequence, prediction scores, reward, actions). |
+| **Download Top 30 Sequences** | Top 30 unique peptides ranked by combined score (AXP average − HEM probability + heuristic score). |
 
 ## Key Hyperparameters (`config.py`)
 

@@ -24,7 +24,7 @@ CHECKPOINT_INTERVAL = 1000
 
 TARGET_PEPTIDE = "RVKRVWPLVIRTVIAGYNLYRAIKKK"
 
-REWARD_MODELS = ["ACP", "AFP", "AMP", "AVP", "HEM"]
+REWARD_MODELS = ["ACP", "AFP", "AMP", "AVP", "HEM", "MRSA"]
 
 HEM_CONCENTRATION = 50.0  # μg/mL, passed to HEM hemolysis predictor
 
@@ -37,6 +37,7 @@ REWARD_WEIGHTS = {
     "AFP": 0.6,
     "AVP": 0.6,
     "HEM": 2.5,
+    "MRSA": 1.0,
 }
 
 # Extra step-wise penalty when HEM probability exceeds this threshold.

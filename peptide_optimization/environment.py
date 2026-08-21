@@ -6,6 +6,7 @@ from hem_prediction.inference import get_hem_probs
 from acp_prediction.inference import get_acp_probs
 from afp_prediction.inference import get_afp_probs
 from avp_prediction.inference import get_avp_probs
+from mrsa_prediction.inference import get_mrsa_probs
 from peptide_optimization.encoding import PeptideEncoder
 from peptide_optimization.design_rules_v2_1 import soft_rule_features, hard_filter_pass
 
@@ -15,6 +16,7 @@ _PROB_FNS = {
     "ACP": get_acp_probs,
     "AFP": get_afp_probs,
     "AVP": get_avp_probs,
+    "MRSA": get_mrsa_probs,
 }
 
 # +1 → maximise probability, -1 → minimise probability
@@ -24,6 +26,7 @@ _MODEL_DIRECTIONS = {
     "ACP": +1,
     "AFP": +1,
     "AVP": +1,
+    "MRSA": +1,
 }
 
 def _heuristic_reward_single(seq: str, c_terminal: str = "CONH2") -> float:

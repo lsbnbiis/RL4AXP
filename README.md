@@ -1,10 +1,10 @@
 # RL4AXP
 
-A reinforcement learning framework for multi-objective functional peptide (ACP/AFP/AMP/AVP) optimization using Proximal Policy Optimization (PPO).
+A reinforcement learning framework for multi-objective functional peptide (ACP/AFP/AMP/AVP/MRSA) optimization using Proximal Policy Optimization (PPO).
 
 ## Overview
 
-The agent iteratively mutates a seed peptide sequence to maximize therapeutic activity scores (ACP, AFP, AMP, AVP) while minimizing hemolytic toxicity (HEM). A reward engine combining physicochemical design rules and pretrained ML classifiers guides the search.
+The agent iteratively mutates a seed peptide sequence to maximize therapeutic activity scores (ACP, AFP, AMP, AVP, MRSA) while minimizing hemolytic toxicity (HEM). A reward engine combining physicochemical design rules and ML classifiers (pretrained third-party models, plus an in-house MRSA classifier) guides the search.
 
 ## Project Structure
 
@@ -15,6 +15,7 @@ acp_prediction/         # Anticancer peptide classifier (AI4ACP)
 afp_prediction/         # Antifungal peptide classifier (ensemble: Doc2Vec + PC6 + BERT)
 avp_prediction/         # Antiviral peptide classifier (AI4AVP)
 hem_prediction/         # Hemolysis classifier (LysisPeptica / PepBERT)
+mrsa_prediction/        # Anti-MRSA activity classifier (in-house, PC6 + CNN)
 streamlit_app.py        # Interactive training dashboard
 run_train.py            # CLI training entry point
 config.py               # Hyperparameters and training settings
@@ -29,6 +30,7 @@ config.py               # Hyperparameters and training settings
 | AMP | AI4AMP (PC6 + CNN-LSTM) | Antimicrobial activity | [AI4AMP_predictor](https://github.com/LinTzuTang/AI4AMP_predictor) |
 | AVP | AI4AVP (PC6 + CNN) | Antiviral activity | [AI4AVP_predictor](https://github.com/LinTzuTang/AI4AVP_predictor) |
 | HEM | LysisPeptica (PepBERT + CNN ensemble) | Hemolysis (minimize) | [LysisPeptica](https://github.com/lsbnbiis/LysisPeptica) |
+| MRSA | In-house CNN (PC6), trained on the dataset below — no pretrained anti-MRSA model was available to wrap | Anti-MRSA activity | dataset: [pLM4MRSA](https://github.com/Shoombuatong/pLM4MRSA) |
 
 > **Large model files are excluded from this repo.** Download them and place in the indicated paths before running AFP or HEM inference.
 >

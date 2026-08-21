@@ -1,3 +1,4 @@
+import gpu_setup  # noqa: F401 — must be first to prevent TF/PyTorch CUDA conflict
 import time
 import config
 import threading
@@ -42,7 +43,11 @@ def _init_shared() -> dict:
         "framework": None,
     }
 
-for _key, _default in [("shared", _init_shared()), ("stop_event", threading.Event()), ("training_thread", None), ("confirm_reset", False)]:
+for _key, _default in [
+    ("shared", _init_shared()), ("stop_event", threading.Event()),
+    ("training_thread", None), ("confirm_reset", False),
+    ("sqa_results", None), ("sqa_running", False),
+]:
     if _key not in st.session_state: st.session_state[_key] = _default
 
 def _training_worker(shared: dict, stop_event: threading.Event, resume_framework=None) -> None:
@@ -282,6 +287,64 @@ with st.sidebar:
         width="stretch",
     )
 
+    st.divider()
+    st.subheader("Quantum Refinement (SQA)")
+
+    sqa_enabled = st.toggle("Enable SQA", value=config.USE_SQA, disabled=is_active, key="sqa_toggle")
+    config.USE_SQA = sqa_enabled
+
+    with st.expander("SQA Parameters"):
+        def _sqa_row(label):
+            c1, c2 = st.columns([1, 1], vertical_alignment="center")
+            c1.markdown(label)
+            return c2
+
+        sqa_top_n    = _sqa_row("Top-N sequences").number_input("SQA_TOP_N",    value=10, min_value=1, max_value=50, step=1,  label_visibility="collapsed", disabled=is_active)
+        sqa_trotter  = _sqa_row("Trotter Slices") .number_input("SQA_N_TROTTER", value=int(config.SQA_N_TROTTER), min_value=1, max_value=100, step=1, label_visibility="collapsed", disabled=is_active)
+        sqa_steps    = _sqa_row("Anneal Steps")   .number_input("SQA_N_STEPS",   value=int(config.SQA_N_STEPS),   min_value=100, step=100,     label_visibility="collapsed", disabled=is_active)
+        sqa_n_pos    = _sqa_row("Top Positions")  .number_input("SQA_N_POSITIONS", value=int(config.SQA_N_POSITIONS), min_value=1, max_value=20, step=1, label_visibility="collapsed", disabled=is_active)
+        sqa_n_aas    = _sqa_row("AAs / Position") .number_input("SQA_N_AAS",    value=int(config.SQA_N_AAS),    min_value=1, max_value=10, step=1,  label_visibility="collapsed", disabled=is_active)
+
+        config.SQA_N_TROTTER  = int(sqa_trotter)
+        config.SQA_N_STEPS    = int(sqa_steps)
+        config.SQA_N_POSITIONS = int(sqa_n_pos)
+        config.SQA_N_AAS      = int(sqa_n_aas)
+
+    framework_ready = (
+        status in ("stopped", "done") and
+        st.session_state.shared.get("framework") is not None
+    )
+    if st.button(
+        "Run SQA Refinement",
+        disabled=not (framework_ready and sqa_enabled and not dl_disabled),
+        width="stretch",
+    ):
+        st.session_state.sqa_running = True
+        st.rerun()
+
+    sqa_df = st.session_state.sqa_results
+    if sqa_df is not None and len(sqa_df) > 0:
+        st.download_button(
+            label="Download SQA Results",
+            data=sqa_df.to_csv(index=False).encode("utf-8"),
+            file_name="sqa_refinement.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+
+# ── SQA execution (triggered by sidebar button) ────────────────────────────
+if st.session_state.sqa_running:
+    framework_obj = st.session_state.shared.get("framework")
+    if framework_obj is not None:
+        with st.spinner("Running SQA Quantum Refinement..."):
+            try:
+                sqa_df = framework_obj.run_sqa_refinement(top_n=int(sqa_top_n))
+                st.session_state.sqa_results = sqa_df
+            except Exception as _e:
+                st.error(f"SQA refinement failed: {_e}")
+    st.session_state.sqa_running = False
+    st.rerun()
+
 shared = st.session_state.shared
 status = shared["status"]
 
@@ -340,8 +403,8 @@ if results_df is not None and len(results_df) > 0:
 
     sigma = 200
 
-    tab_reward, tab_probs, tab_heuristic, tab_loss = st.tabs(
-        ["Cumulative Reward", "Model Probabilities", "Heuristic Score", "Loss Curves"]
+    tab_reward, tab_probs, tab_heuristic, tab_loss, tab_sqa = st.tabs(
+        ["Cumulative Reward", "Model Probabilities", "Heuristic Score", "Loss Curves", "SQA Refinement"]
     )
 
     with tab_reward:
@@ -406,6 +469,39 @@ if results_df is not None and len(results_df) > 0:
             st.plotly_chart(fig, width="stretch")
         else:
             st.info("Loss data will appear after the first learning step.")
+
+    with tab_sqa:
+        sqa_df = st.session_state.get("sqa_results")
+        if sqa_df is not None and len(sqa_df) > 0:
+            st.caption(
+                "SQA Quantum Refinement: BLOSUM62 diagonal (h_i) + "
+                "PepBERT attention proxy (J_ij) → GPU SQA solver → optimal multi-point mutations."
+            )
+            # Delta column colouring helper
+            delta_cols = [c for c in sqa_df.columns if c.endswith("_Delta")]
+            st.dataframe(
+                sqa_df[["Original_Seq", "Refined_Seq", "Mutations", "N_Mutations",
+                         "Heuristic_Delta"] + delta_cols],
+                use_container_width=True,
+            )
+            # Bar chart: heuristic delta per sequence
+            fig_sqa = go.Figure(go.Bar(
+                x=[f"#{i+1}" for i in range(len(sqa_df))],
+                y=sqa_df["Heuristic_Delta"].astype(float).tolist(),
+                marker_color=["green" if v >= 0 else "red"
+                              for v in sqa_df["Heuristic_Delta"].astype(float).tolist()],
+            ))
+            fig_sqa.update_layout(
+                xaxis_title="Sequence rank", yaxis_title="Heuristic Δ (SQA − PPO)",
+                title="Heuristic score improvement from SQA refinement",
+                height=350, margin=dict(l=50, r=20, t=50, b=40),
+            )
+            st.plotly_chart(fig_sqa, width="stretch")
+        else:
+            st.info(
+                "SQA Quantum Refinement results will appear here after you click "
+                "**Run SQA Refinement** in the sidebar (requires training to be stopped or complete)."
+            )
 
 else:
     if status == "idle":

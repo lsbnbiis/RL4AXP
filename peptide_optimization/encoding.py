@@ -76,7 +76,7 @@ class PeptideEncoder:
 
         sos_id = self.pepbert_large_tokenizer.token_to_id("[SOS]")
         eos_id = self.pepbert_large_tokenizer.token_to_id("[EOS]")
-        
+
         ids = [[sos_id] + self.pepbert_large_tokenizer.encode(p).ids + [eos_id] for p in peptides]
         input_ids = T.tensor(ids, dtype=T.int64).to(self.device)
 
@@ -85,3 +85,28 @@ class PeptideEncoder:
         with T.no_grad(): embeds: T.Tensor = self.pepbert_large_model.encode(input_ids, encoder_mask)
 
         return embeds[:, 1:-1, :].mean(dim=1)
+
+    def get_position_embeddings(self, peptide: str) -> T.Tensor:
+        """
+        Return per-residue embeddings for a single peptide: shape (L, d_model).
+        Uses PepBERT-large (or small if large is unavailable).
+        Used by the SQA Quantum Refinement module to build the attention proxy.
+        """
+        if config.ENCODING_SCHEME in ("PepBERT-large", "PepBERT-small"):
+            model = self.pepbert_large_model
+            tokenizer = self.pepbert_large_tokenizer
+        else:
+            model = self.pepbert_small_model
+            tokenizer = self.pepbert_small_tokenizer
+
+        sos_id = tokenizer.token_to_id("[SOS]")
+        eos_id = tokenizer.token_to_id("[EOS]")
+
+        ids = [sos_id] + tokenizer.encode(peptide).ids + [eos_id]
+        input_ids = T.tensor([ids], dtype=T.int64, device=self.device)
+        encoder_mask = T.ones((1, 1, 1, input_ids.size(1)), dtype=T.int64, device=self.device)
+
+        with T.no_grad():
+            embeds = model.encode(input_ids, encoder_mask)   # (1, L+2, d_model)
+
+        return embeds[0, 1:-1, :]   # (L, d_model)

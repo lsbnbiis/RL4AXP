@@ -45,6 +45,7 @@ def _heuristic_reward_single(seq: str, c_terminal: str = "CONH2") -> float:
     feature_score = (
         0.50 * soft["net_charge_score"]
         + 0.45 * soft["hydrophobicity_score"]
+        + 0.35 * soft["amphipathicity_score"]
         + 0.30 * soft["basic_fraction_score"]
         + 0.25 * soft["aggregation_control_score"]
         + 0.30 * soft["selectivity_proxy_score"]
@@ -79,7 +80,7 @@ class Environment:
 
         self.peptides_1 = [config.TARGET_PEPTIDE] * config.N_PARALLELS
 
-        self.probs_1 = {m: _PROB_FNS[m](self.peptides_1) for m in self.reward_models}
+        self.probs_1 = {m: _PROB_FNS[m](self.peptides_1).to(self.device) for m in self.reward_models}
         self.heuristic_1 = _heuristic_rewards_batch(self.peptides_1, self.device)
 
         self.states_1 = self.encoder.encode(self.peptides_1)
@@ -121,7 +122,7 @@ class Environment:
 
         for m in self.reward_models:
             self.probs_prev[m] = self.probs_curr[m].clone()
-            self.probs_curr[m] = _PROB_FNS[m](self.peptides_curr)
+            self.probs_curr[m] = _PROB_FNS[m](self.peptides_curr).to(self.device)
 
         self.heuristic_prev = self.heuristic_curr.clone()
         self.heuristic_curr = _heuristic_rewards_batch(self.peptides_curr, self.device)
@@ -141,7 +142,14 @@ class Environment:
         reward = heuristic_step
         for m in self.reward_models:
             d = _MODEL_DIRECTIONS[m]
-            reward = reward + d * (self.probs_curr[m] - self.probs_prev[m])
+            w = config.REWARD_WEIGHTS.get(m, 1.0)
+            reward = reward + w * d * (self.probs_curr[m] - self.probs_prev[m])
+
+        # Extra penalty whenever HEM probability exceeds the safe threshold.
+        # This creates a hard floor that fires every step, not just at terminal.
+        if "HEM" in self.reward_models:
+            excess = T.clamp(self.probs_curr["HEM"] - config.HEM_THRESHOLD, min=0.0)
+            reward = reward - config.HEM_PENALTY_SCALE * excess
 
         if self.done:
             heuristic_final = self.heuristic_curr - self.heuristic_1
@@ -149,12 +157,13 @@ class Environment:
 
             for m in self.reward_models:
                 d = _MODEL_DIRECTIONS[m]
+                w = config.REWARD_WEIGHTS.get(m, 1.0)
                 curr = self.probs_curr[m]
                 T_diff = curr - self.probs_1[m]
                 # opt_factor: "distance to optimum" — small when already near the target
                 opt_factor = (1 - curr) if d > 0 else curr
                 factor = T.where(d * T_diff > 0, opt_factor, 1 - opt_factor)
-                score = d * T_diff / T.clamp(factor, min=1e-2)
+                score = w * d * T_diff / T.clamp(factor, min=1e-2)
                 reward = reward + score
 
         return reward.cpu()

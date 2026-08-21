@@ -30,7 +30,9 @@ weights_path = os.path.join("./hem_prediction", "pepbert_small", "tmodel_16.pt")
 config = {"seq_len": 52, "d_model": 160}
 
 # 4) Initialize the model structure and load the weights
-DEVICE = T.device("cuda:0") if T.cuda.is_available() else T.device("cpu")
+# Use CPU to avoid CUDA context conflict between TF/Keras and PyTorch.
+# PepBERT-small (160-dim, 52 tokens) is fast enough on CPU.
+DEVICE = T.device("cpu")
 
 pbert_model = build_transformer(
     src_vocab_size=tokenizer.get_vocab_size(),
@@ -236,7 +238,18 @@ def predict(seqli, ugmlli, pbert_batch_size: int = 64):
 
     thr_id = 10  # fixed threshold
 
-    policies = md_policy[thr_id]  # list of (filename, encoding)
+    # Filter to only models whose files are present on disk
+    _model_dir = os.path.join("./hem_prediction", "lysispeptica_models_thr10")
+    policies = [
+        (fname, enc) for fname, enc in md_policy[thr_id]
+        if os.path.isfile(os.path.join(_model_dir, fname))
+    ]
+    if not policies:
+        raise FileNotFoundError(
+            f"No HEM ensemble models found in {_model_dir}. "
+            "Please ensure at least one .keras model file is present."
+        )
+
     needed_encodings = {enc for _, enc in policies}
 
     # --- Step 1: pre-compute all required encodings (deduplicated) ---

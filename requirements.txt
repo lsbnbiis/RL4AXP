@@ -1,16 +1,45 @@
-biopython==1.87
-gensim==4.4.0
-h5py==3.14.0
-keras==3.14.0
-matplotlib==3.10.8
-numpy==2.4.4
-pandas==3.0.2
-plotly==6.7.0
-scikit-learn==1.7.0
-scipy==1.17.1
-streamlit==1.56.0
+# RL4AXP AMP Design System — Python Dependencies
+#
+# Hardware: NVIDIA RTX 6000 Ada (49 GB VRAM), CUDA Driver 580.x
+# Python:   3.12  *  venv: /home/cylin/.venv
+#
+# CRITICAL INSTALL ORDER — TF and PyTorch share CUDA symbols.
+#   Loading both in the wrong order causes segfaults.
+#   See install.sh for the correct procedure.
+#
+# Verified working versions (as of 2026-06):
+
+# 1. PyTorch CUDA 13.0 (install FIRST via extra-index-url)
+#    pip install torch==2.12.0 --extra-index-url https://download.pytorch.org/whl/cu130
+torch==2.12.0
+
+# 2. HuggingFace -- loaded before TF to avoid C-extension conflicts
+transformers==5.10.2
+tokenizers==0.22.2
+
+# 3. TensorFlow + standalone legacy Keras
 tensorflow==2.21.0
 tf_keras==2.21.0
-torch==2.11.0
+
+# 4. Dashboards
+streamlit==1.58.0
+dash==4.2.0
+dash-bootstrap-components==2.0.4
+dash-ag-grid==31.3.1
+
+# 5. Scientific stack
+numpy==2.4.4
+pandas==3.0.2
+scipy==1.17.1
+scikit-learn==1.8.0
+matplotlib==3.10.9
+plotly==6.8.0
+h5py==3.14.0
+joblib==1.5.3
+gensim==4.4.0
+
+# 6. Utilities
+biopython==1.87
 tqdm==4.67.3
-transformers==4.52.4
+pyarrow==24.0.0
+requests==2.31.0

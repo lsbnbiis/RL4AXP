@@ -7,6 +7,7 @@ from tqdm import tqdm
 from peptide_optimization.ppo import PPO
 from peptide_optimization._utils import *
 from peptide_optimization.environment import Environment
+from peptide_optimization.sqa import refine_peptide, build_attention_matrix, get_position_embeddings
 
 class Framework:
 
@@ -142,6 +143,92 @@ class Framework:
             self.exp_results_df = pd.DataFrame(new_rows)
         else:
             self.exp_results_df = pd.concat([self.exp_results_df, pd.DataFrame(new_rows)], ignore_index=True)
+
+    def run_sqa_refinement(self, top_n: int = 10) -> pd.DataFrame:
+        """
+        Run SQA Quantum Refinement on the top-N peptides found by PPO.
+
+        For each candidate:
+          1. Extract PepBERT per-position embeddings → attention proxy (J_ij)
+          2. Use trained Actor1/Actor2 to select candidate mutations (h_i)
+          3. Build QUBO matrix and solve with GPU-accelerated SQA
+          4. Score the refined peptide with all active reward models
+
+        Returns a DataFrame with original and refined sequences, mutations, and scores.
+        """
+        if not config.USE_SQA:
+            return pd.DataFrame()
+
+        if self.exp_results_df is None or len(self.exp_results_df) == 0:
+            return pd.DataFrame()
+
+        from peptide_optimization.environment import _PROB_FNS, _heuristic_reward_single
+
+        # ── pick top-N sequences by heuristic score ────────────────────────────
+        df = self.exp_results_df.copy()
+        df["_heur_float"] = df["Heuristic_T"].astype(float)
+        top_seqs = (
+            df.drop_duplicates("Peptide_T")
+              .sort_values("_heur_float", ascending=False)
+              .head(top_n)["Peptide_T"]
+              .tolist()
+        )
+
+        # ── select PepBERT model from encoder ─────────────────────────────────
+        if config.ENCODING_SCHEME in ("PepBERT-large",):
+            pepbert_model     = self.env.encoder.pepbert_large_model
+            pepbert_tokenizer = self.env.encoder.pepbert_large_tokenizer
+        else:
+            pepbert_model     = self.env.encoder.pepbert_small_model
+            pepbert_tokenizer = self.env.encoder.pepbert_small_tokenizer
+
+        rows = []
+        for seq in top_seqs:
+            try:
+                refined, mutations = refine_peptide(
+                    seq,
+                    actor1           = self.agent.actor1,
+                    actor2           = self.agent.actor2,
+                    pepbert_model    = pepbert_model,
+                    pepbert_tokenizer= pepbert_tokenizer,
+                    device           = self.device,
+                    n_positions      = config.SQA_N_POSITIONS,
+                    n_aas_per_pos    = config.SQA_N_AAS,
+                    n_trotter        = config.SQA_N_TROTTER,
+                    n_steps          = config.SQA_N_STEPS,
+                    alpha            = config.SQA_ALPHA,
+                )
+            except Exception:
+                refined   = seq
+                mutations = []
+
+            # Score both sequences
+            orig_scores    = {m: float(_PROB_FNS[m]([seq])[0])     for m in config.REWARD_MODELS}
+            refined_scores = {m: float(_PROB_FNS[m]([refined])[0]) for m in config.REWARD_MODELS}
+            orig_heur      = _heuristic_reward_single(seq)
+            refined_heur   = _heuristic_reward_single(refined)
+
+            mut_str = "|".join(f"{p}{o}→{n}" for p, o, n in mutations) if mutations else "none"
+
+            row = {
+                "Original_Seq":    seq,
+                "Refined_Seq":     refined,
+                "Mutations":       mut_str,
+                "N_Mutations":     len(mutations),
+                "Heuristic_Orig":  f"{orig_heur:+.4f}",
+                "Heuristic_Ref":   f"{refined_heur:+.4f}",
+                "Heuristic_Delta": f"{refined_heur - orig_heur:+.4f}",
+            }
+            for m in config.REWARD_MODELS:
+                row[f"{m}_Orig"]  = f"{orig_scores[m]:.4f}"
+                row[f"{m}_Ref"]   = f"{refined_scores[m]:.4f}"
+                row[f"{m}_Delta"] = f"{refined_scores[m] - orig_scores[m]:+.4f}"
+            rows.append(row)
+
+        self.sqa_results_df = pd.DataFrame(rows)
+        sqa_path = os.path.join(self.save_dir, "sqa_refinement.csv")
+        self.sqa_results_df.to_csv(sqa_path, index=False)
+        return self.sqa_results_df
 
     def _plot_exp_results(self) -> None:
 

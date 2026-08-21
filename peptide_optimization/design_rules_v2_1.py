@@ -51,6 +51,20 @@ AROMATIC_SET = set("FWY")
 HELIX_BREAKERS = set("PG")
 AGGREGATION_PRONE_AROMATIC = set("FWY")
 
+# Eisenberg consensus hydrophobicity scale (Eisenberg et al. 1984), used for
+# the hydrophobic-moment / amphipathicity calculation below.
+EISENBERG_HYDROPHOBICITY: Dict[str, float] = {
+    "A": 0.62, "R": -2.53, "N": -0.78, "D": -0.90, "C": 0.29,
+    "Q": -0.85, "E": -0.74, "G": 0.48, "H": -0.40, "I": 1.38,
+    "L": 1.06, "K": -1.50, "M": 0.64, "F": 1.19, "P": 0.12,
+    "S": -0.18, "T": -0.05, "W": 0.81, "Y": 0.26, "V": 1.08,
+}
+
+# Typical mean hydrophobic moment (Eisenberg scale, per residue) at which an
+# alpha-helical AMP is considered clearly amphipathic; used to normalize
+# hydrophobic_moment() into a 0..1 score.
+AMPHIPATHIC_MOMENT_TARGET = 0.35
+
 HARD_FILTERS = {
     "length_min": 10,
     "length_max": 30,
@@ -66,7 +80,7 @@ HARD_FILTERS = {
 }
 
 SOFT_TARGETS = {
-    "preferred_net_charge_window": (4, 7),
+    "preferred_net_charge_window": (4, 6),
     "preferred_length_window": (12, 24),
     "preferred_arg_fraction_max": 0.35,
     "preferred_trp_count_max": 3,
@@ -108,7 +122,7 @@ DESIGN_RULES: List[DesignRule] = [
         "Increase Lys/Arg and reduce Asp/Glu.",
         "Improves attraction to anionic bacterial membranes.",
         "Too much charge can increase nonspecific interactions and salt sensitivity.",
-        "Use hard bounds + soft target window around +4 to +7.",
+        "Use hard bounds + soft target window around +4 to +6.",
     ),
     DesignRule(
         "R002", "charge", "Lys-to-Arg substitution",
@@ -185,6 +199,20 @@ def residue_fraction(seq: str, residue_set: set) -> float:
 
 def hydrophobic_fraction(seq: str) -> float:
     return residue_fraction(seq, HYDROPHOBIC_SET)
+
+def hydrophobic_moment(seq: str, delta_deg: float = 100.0) -> float:
+    """Mean alpha-helical hydrophobic moment (Eisenberg 1982).
+
+    delta_deg=100 degrees is the per-residue helical-wheel angle for an
+    alpha-helix (3.6 residues/turn); higher moment -> more amphipathic.
+    """
+    validate_sequence(seq)
+    if not seq:
+        return 0.0
+    delta = math.radians(delta_deg)
+    sin_sum = sum(EISENBERG_HYDROPHOBICITY[aa] * math.sin(i * delta) for i, aa in enumerate(seq))
+    cos_sum = sum(EISENBERG_HYDROPHOBICITY[aa] * math.cos(i * delta) for i, aa in enumerate(seq))
+    return math.sqrt(sin_sum ** 2 + cos_sum ** 2) / len(seq)
 
 def basic_fraction(seq: str) -> float:
     return residue_fraction(seq, BASIC_SET)
@@ -280,6 +308,9 @@ def soft_rule_features(
     aggregation_risk_score = min(1.0, max(0.0, (max_arom - 1) / 2.0))
     aggregation_control_score = 1.0 - aggregation_risk_score
 
+    moment = hydrophobic_moment(seq)
+    amphipathicity_score = min(1.0, moment / AMPHIPATHIC_MOMENT_TARGET)
+
     selectivity_proxy_score = (
         0.40 * window_score(charge, *SOFT_TARGETS["preferred_net_charge_window"])
         + 0.35 * window_score(hydro, *SOFT_TARGETS["preferred_hydrophobic_fraction_range"])
@@ -300,6 +331,8 @@ def soft_rule_features(
         "max_consecutive_aromatic": float(max_arom),
         "aggregation_risk_score": aggregation_risk_score,
         "aggregation_control_score": aggregation_control_score,
+        "hydrophobic_moment": moment,
+        "amphipathicity_score": amphipathicity_score,
         "selectivity_proxy_score": selectivity_proxy_score,
         "charge_pH7_4": charge_pH74,
         "charge_pH6_0": charge_pH60,

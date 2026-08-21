@@ -64,11 +64,22 @@ D2V_SVM = joblib.load(_D2V_SVM)
 D2V_RF = joblib.load(_D2V_RF)
 D2V_MDL = Doc2Vec.load(_D2V_MDL)
 
-BERT_TOKENIZER = BertTokenizer.from_pretrained(_BERT_NAME, do_lower_case=False)
-BERT_MODEL = T.load(_BERT_MDL, map_location=DEVICE, weights_only=False)
-BERT_MODEL.config.output_attentions = False
-BERT_MODEL.config.output_hidden_states = False
-BERT_MODEL.eval()
+_BERT_AVAILABLE = os.path.isfile(_BERT_MDL)
+if _BERT_AVAILABLE:
+    BERT_TOKENIZER = BertTokenizer.from_pretrained(_BERT_NAME, do_lower_case=False)
+    BERT_MODEL = T.load(_BERT_MDL, map_location=DEVICE, weights_only=False)
+    BERT_MODEL.config.output_attentions = False
+    BERT_MODEL.config.output_hidden_states = False
+    BERT_MODEL.eval()
+else:
+    import warnings
+    warnings.warn(
+        f"AFP BERT model not found at {_BERT_MDL}. "
+        "BERT component will be replaced with a neutral (0.5) prediction.",
+        RuntimeWarning, stacklevel=1
+    )
+    BERT_TOKENIZER = None
+    BERT_MODEL = None
 
 ENSEMBLE_MODEL = keras.models.load_model(_ENSEMBLE, compile=False)
 
@@ -154,7 +165,12 @@ def get_afp_probs(peptides: list[str]) -> T.Tensor:
 
     pc6_nn, pc6_svm, pc6_rf = _run_pc6(peptides)
     d2v_nn, d2v_svm, d2v_rf = _run_doc2vec(peptides)
-    bert_bin = _run_bert(peptides)
+
+    if _BERT_AVAILABLE:
+        bert_bin = _run_bert(peptides)
+    else:
+        # BERT model unavailable — use neutral 0.5 as a soft placeholder
+        bert_bin = np.full(len(peptides), 0.5, dtype=np.float64)
 
     pc6_nn_bin = (pc6_nn >= _PC6_THRES).astype(float)
     d2v_nn_bin = (d2v_nn >= _D2V_THRES).astype(float)
@@ -167,7 +183,7 @@ def get_afp_probs(peptides: list[str]) -> T.Tensor:
     ).astype(np.float32)
 
     scores = ENSEMBLE_MODEL.predict(ensemble_input, verbose=0, batch_size=512).reshape(-1)
-    
+
     return T.tensor(scores, dtype=T.float32, device=DEVICE)
 
 if __name__ == "__main__":

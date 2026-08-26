@@ -49,16 +49,16 @@ class Framework:
                     break
 
                 self.trjs = {
-                    "states": [], "action1s": [], "action2s": [], "rewards": [],
+                    "states": [], "action1s": [], "action2s": [], "action_masks": [], "rewards": [],
                     "log_prob1s": [], "log_prob2s": [], "pred_values": []
                 }
 
                 states = self.env.reset()
                 while True:
 
-                    action1s, action2s, log_prob1s, log_prob2s, pred_values = self.agent.choose_actions(states)
+                    action1s, action2s, log_prob1s, log_prob2s, pred_values, action_masks = self.agent.choose_actions(states, action_mask_fn=self.env.get_action_masks)
                     next_states, rewards, done = self.env.step(action1s, action2s)
-                    self._update_trjs(states, action1s, action2s, rewards, log_prob1s, log_prob2s, pred_values)
+                    self._update_trjs(states, action1s, action2s, rewards, log_prob1s, log_prob2s, pred_values, action_masks)
 
                     if done:
 
@@ -96,12 +96,15 @@ class Framework:
 
     def _update_trjs(
             self, states: T.Tensor, action1s: T.Tensor, action2s: T.Tensor, rewards: T.Tensor,
-            log_prob1s: T.Tensor, log_prob2s: T.Tensor, pred_values: T.Tensor
+            log_prob1s: T.Tensor, log_prob2s: T.Tensor, pred_values: T.Tensor,
+            action_masks: T.Tensor | None = None,
         ) -> None:
 
         self.trjs["states"].append(states)
         self.trjs["action1s"].append(action1s)
         self.trjs["action2s"].append(action2s)
+        if action_masks is not None:
+            self.trjs["action_masks"].append(action_masks)
         self.trjs["rewards"].append(rewards)
         self.trjs["log_prob1s"].append(log_prob1s)
         self.trjs["log_prob2s"].append(log_prob2s)

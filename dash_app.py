@@ -47,10 +47,10 @@ _state = {
 _framework = None
 _stop_event = threading.Event()
 
-ALL_MODELS   = ["AMP", "ACP", "AFP", "AVP", "HEM"]
+ALL_MODELS   = ["AMP", "ACP", "AFP", "AVP", "HEM", "MRSA"]
 MODEL_COLORS = {
     "AMP": "#2196F3", "ACP": "#4CAF50", "AFP": "#FF9800",
-    "AVP": "#9C27B0", "HEM": "#F44336",
+    "AVP": "#9C27B0", "HEM": "#F44336", "MRSA": "#00BCD4",
 }
 _WEIGHT_INFO = {
     "AMP": "Antimicrobial activity weight. Reward multiplier for AMP probability improvement. ↑ maximize (range 0.1–5.0).",
@@ -58,6 +58,7 @@ _WEIGHT_INFO = {
     "AFP": "Antifungal activity weight. Reward multiplier for AFP probability improvement. ↑ maximize (range 0.1–5.0).",
     "AVP": "Antiviral activity weight. Reward multiplier for AVP probability improvement. ↑ maximize (range 0.1–5.0).",
     "HEM": "Hemolysis penalty weight. Set higher than activity weights to counteract the 4-vs-1 structural imbalance. ↓ minimize (range 0.1–5.0).",
+    "MRSA": "Anti-MRSA activity weight. Reward multiplier for MRSA probability improvement. ↑ maximize (range 0.1–5.0).",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -583,6 +584,7 @@ app.layout = html.Div([
     Output("val-w-AFP",  "children"),
     Output("val-w-AVP",  "children"),
     Output("val-w-HEM",  "children"),
+    Output("val-w-MRSA", "children"),
     Output("val-hem-thr","children"),
     Output("val-hem-pen","children"),
     Input("slider-w-AMP",   "value"),
@@ -590,14 +592,15 @@ app.layout = html.Div([
     Input("slider-w-AFP",   "value"),
     Input("slider-w-AVP",   "value"),
     Input("slider-w-HEM",   "value"),
+    Input("slider-w-MRSA",  "value"),
     Input("slider-hem-thr", "value"),
     Input("slider-hem-pen", "value"),
 )
-def update_weight_labels(w_amp, w_acp, w_afp, w_avp, w_hem, hem_thr, hem_pen):
+def update_weight_labels(w_amp, w_acp, w_afp, w_avp, w_hem, w_mrsa, hem_thr, hem_pen):
     fmt  = lambda v, d: f"{float(v):.1f}" if v is not None else d
     fmt2 = lambda v, d: f"{float(v):.2f}" if v is not None else d
     return (fmt(w_amp, "1.0"), fmt(w_acp, "0.6"), fmt(w_afp, "0.6"),
-            fmt(w_avp, "0.6"), fmt(w_hem, "2.5"),
+            fmt(w_avp, "0.6"), fmt(w_hem, "2.5"), fmt(w_mrsa, "1.0"),
             fmt2(hem_thr, "0.30"), fmt(hem_pen, "1.0"))
 
 
@@ -620,12 +623,13 @@ def update_weight_labels(w_amp, w_acp, w_afp, w_avp, w_hem, hem_thr, hem_pen):
     State("slider-w-AFP",   "value"),
     State("slider-w-AVP",   "value"),
     State("slider-w-HEM",   "value"),
+    State("slider-w-MRSA",  "value"),
     State("slider-hem-thr", "value"),
     State("slider-hem-pen", "value"),
     prevent_initial_call=True,
 )
 def control_training(start, stop, reset, peptide, models, n_par, time_h,
-                     w_amp, w_acp, w_afp, w_avp, w_hem, hem_thr, hem_pen):
+                     w_amp, w_acp, w_afp, w_avp, w_hem, w_mrsa, hem_thr, hem_pen):
     global _framework, _stop_event
 
     triggered = ctx.triggered_id
@@ -648,6 +652,7 @@ def control_training(start, stop, reset, peptide, models, n_par, time_h,
             "AFP": float(w_afp or 0.6),
             "AVP": float(w_avp or 0.6),
             "HEM": float(w_hem or 2.5),
+            "MRSA": float(w_mrsa or 1.0),
         }
         _stop_event.clear()
         t = threading.Thread(

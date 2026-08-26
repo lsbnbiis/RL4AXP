@@ -53,23 +53,32 @@ ENCODING_TABLE: dict[str, list[float]] = _build_pc6_table()
 MODEL = keras.models.load_model(_MODEL_PATH, compile=False)
 DEVICE = T.device("cuda:0") if T.cuda.is_available() else T.device("cpu")
 
+def _build_pc6_lookup() -> np.ndarray:
+    lookup = np.zeros((128, 6), dtype=np.float32)
+    for aa, vec in ENCODING_TABLE.items():
+        if len(aa) == 1:
+            lookup[ord(aa)] = vec
+    return lookup
+
+_PC6_LOOKUP = _build_pc6_lookup()
 
 def batch_encode_peps(peptides: list[str], length: int = _PAD_LEN) -> np.ndarray:
-
-    pep_vectors: list[list[list[float]]] = []
-
-    for pep in peptides:
-        pep = pep.ljust(length, "X")[:length]
-        pep_vectors.append([ENCODING_TABLE.get(aa, [0.0] * 6) for aa in pep])
-
-    return np.array(pep_vectors, dtype=np.float32)
+    n = len(peptides)
+    arr = np.full((n, length), ord("X"), dtype=np.uint8)
+    for i, pep in enumerate(peptides):
+        p_bytes = pep.encode("ascii")[:length]
+        arr[i, :len(p_bytes)] = np.frombuffer(p_bytes, dtype=np.uint8)
+    return _PC6_LOOKUP[arr]
 
 
 def get_mrsa_probs(peptides: list[str]) -> T.Tensor:
-
+    if len(peptides) == 0:
+        return T.empty(0, dtype=T.float32, device=DEVICE)
     scores: np.ndarray = MODEL.predict(batch_encode_peps(peptides), verbose=0, batch_size=512)
-
-    return T.tensor(scores, dtype=T.float32, device=DEVICE).squeeze()
+    res = T.tensor(scores, dtype=T.float32, device=DEVICE).squeeze(-1)
+    if len(peptides) == 1 and res.dim() == 0:
+        res = res.unsqueeze(0)
+    return res
 
 
 if __name__ == "__main__":

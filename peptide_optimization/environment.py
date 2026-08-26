@@ -1,3 +1,4 @@
+import numpy as np
 import config
 import torch as T
 
@@ -28,6 +29,18 @@ _MODEL_DIRECTIONS = {
     "AVP": +1,
     "MRSA": +1,
 }
+
+def _get_probs_batch_dedup(prob_fn, peptides: list[str], device: T.device) -> T.Tensor:
+    if len(peptides) == 0:
+        return T.empty(0, device=device)
+    unique_peps, inv = np.unique(peptides, return_inverse=True)
+    if len(unique_peps) == len(peptides):
+        return prob_fn(peptides).to(device)
+    unique_probs = prob_fn(list(unique_peps)).to(device)
+    if unique_probs.dim() == 0:
+        unique_probs = unique_probs.unsqueeze(0)
+    inv_t = T.tensor(inv, dtype=T.int64, device=device)
+    return unique_probs[inv_t]
 
 def _heuristic_reward_single(seq: str, c_terminal: str = "CONH2") -> float:
 
@@ -61,9 +74,13 @@ def _heuristic_reward_single(seq: str, c_terminal: str = "CONH2") -> float:
 
 def _heuristic_rewards_batch(peptides: list[str], device: T.device) -> T.Tensor:
 
-    scores = [_heuristic_reward_single(p) for p in peptides]
-
-    return T.tensor(scores, dtype=T.float32, device=device)
+    if len(peptides) == 0:
+        return T.empty(0, device=device)
+    unique_peps, inv = np.unique(peptides, return_inverse=True)
+    unique_scores = [_heuristic_reward_single(p) for p in unique_peps]
+    inv_t = T.tensor(inv, dtype=T.int64, device=device)
+    unique_t = T.tensor(unique_scores, dtype=T.float32, device=device)
+    return unique_t[inv_t]
 
 class Environment:
 
@@ -79,11 +96,12 @@ class Environment:
 
         self.amino_acids = "ACDEFGHIKLMNPQRSTVWY"
         self.a2_to_aa = {idx: aa for idx, aa in enumerate(self.amino_acids)}
+        self.aa_to_a2 = {aa: idx for idx, aa in enumerate(self.amino_acids)}
         self.device = T.device("cuda:0") if T.cuda.is_available() else T.device("cpu")
 
         self.peptides_1 = [config.TARGET_PEPTIDE] * config.N_PARALLELS
 
-        self.probs_1 = {m: _PROB_FNS[m](self.peptides_1).to(self.device) for m in self.reward_models}
+        self.probs_1 = {m: _get_probs_batch_dedup(_PROB_FNS[m], self.peptides_1, self.device) for m in self.reward_models}
         self.heuristic_1 = _heuristic_rewards_batch(self.peptides_1, self.device)
 
         self.states_1 = self.encoder.encode(self.peptides_1)
@@ -91,6 +109,21 @@ class Environment:
 
         self.n_action1 = self.seq_len
         self.n_action2 = len(self.amino_acids)
+
+    def get_action_masks(self, action1s: T.Tensor) -> T.Tensor:
+        """
+        Generate action2 mask prohibiting mutating to the same amino acid (No-op mutation).
+        action1s: (N,) Tensor containing selected positions (0..seq_len-1).
+        Returns: (N, 20) Boolean Tensor on self.device (True = allowed, False = forbidden).
+        """
+        a1_list = action1s.tolist() if isinstance(action1s, T.Tensor) else list(action1s)
+        N = len(self.peptides_curr)
+        masks = T.ones((N, len(self.amino_acids)), dtype=T.bool, device=self.device)
+        for i, (pep, a1) in enumerate(zip(self.peptides_curr, a1_list)):
+            curr_aa = pep[a1]
+            curr_aa_idx = self.aa_to_a2[curr_aa]
+            masks[i, curr_aa_idx] = False
+        return masks
 
     def reset(self) -> T.Tensor:
 
@@ -125,7 +158,7 @@ class Environment:
 
         for m in self.reward_models:
             self.probs_prev[m] = self.probs_curr[m].clone()
-            self.probs_curr[m] = _PROB_FNS[m](self.peptides_curr).to(self.device)
+            self.probs_curr[m] = _get_probs_batch_dedup(_PROB_FNS[m], self.peptides_curr, self.device)
 
         self.heuristic_prev = self.heuristic_curr.clone()
         self.heuristic_curr = _heuristic_rewards_batch(self.peptides_curr, self.device)

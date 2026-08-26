@@ -7,7 +7,8 @@ class ReplayBuffer:
     def __init__(self) -> None:
 
         self.data: dict[str, list[T.Tensor]] = {
-            "states": [], "action1s": [], "action2s": [], "log_prob1s": [], "log_prob2s": [], "pred_values": [], "returns": [], "gaes": []
+            "states": [], "action1s": [], "action2s": [], "action_masks": [],
+            "log_prob1s": [], "log_prob2s": [], "pred_values": [], "returns": [], "gaes": []
         }
 
     def store_trjs(self, trjs: dict[str, list[T.Tensor]]) -> None:
@@ -19,6 +20,9 @@ class ReplayBuffer:
         self.data["states"].extend(states.reshape(-1, states.shape[-1]).cpu())
         self.data["action1s"].extend(T.stack(trjs["action1s"], dim=1).flatten())
         self.data["action2s"].extend(T.stack(trjs["action2s"], dim=1).flatten())
+        if "action_masks" in trjs and len(trjs["action_masks"]) > 0:
+            action_masks = T.stack(trjs["action_masks"], dim=1)
+            self.data["action_masks"].extend(action_masks.reshape(-1, action_masks.shape[-1]).cpu())
         self.data["log_prob1s"].extend(T.stack(trjs["log_prob1s"], dim=1).flatten())
         self.data["log_prob2s"].extend(T.stack(trjs["log_prob2s"], dim=1).flatten())
         self.data["pred_values"].extend(pred_values.flatten())
@@ -52,11 +56,12 @@ class ReplayBuffer:
 
         return advantages.flatten() # (N x T, )
     
-    def get_train_data(self) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
+    def get_train_data(self) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor | None]:
 
         states = T.stack(self.data["states"])
         action1s = T.stack(self.data["action1s"])
         action2s = T.stack(self.data["action2s"])
+        action_masks = T.stack(self.data["action_masks"]) if len(self.data["action_masks"]) == len(self.data["states"]) else None
         old_log_prob1s = T.stack(self.data["log_prob1s"])
         old_log_prob2s = T.stack(self.data["log_prob2s"])
         returns = T.stack(self.data["returns"])
@@ -64,7 +69,7 @@ class ReplayBuffer:
         gaes = T.stack(self.data["gaes"])
         gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
 
-        return states, action1s, action2s, old_log_prob1s, old_log_prob2s, returns, gaes
+        return states, action1s, action2s, action_masks, old_log_prob1s, old_log_prob2s, returns, gaes
 
     def get_batch_indices(self) -> list[list[int]]:
 
@@ -76,6 +81,7 @@ class ReplayBuffer:
     def clear(self) -> None:
         
         self.data: dict[str, list[T.Tensor]] = {
-            "states": [], "action1s": [], "action2s": [], "log_prob1s": [], "log_prob2s": [], "pred_values": [], "returns": [], "gaes": []
+            "states": [], "action1s": [], "action2s": [], "action_masks": [],
+            "log_prob1s": [], "log_prob2s": [], "pred_values": [], "returns": [], "gaes": []
         }
     

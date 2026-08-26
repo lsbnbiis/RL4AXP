@@ -74,9 +74,12 @@ class Actor2(nn.Module):
 
         self.load_state_dict(T.load(self.pt_file_path, map_location=self.device, weights_only=False))
 
-    def forward(self, states: T.Tensor, action1s: T.Tensor) -> T.Tensor:
+    def forward(self, states: T.Tensor, action1s: T.Tensor, action_mask: T.Tensor | None = None) -> T.Tensor:
 
-        return T.softmax(self.policy_net(T.cat([states, self.pos_embed(action1s)], dim=-1)), dim=-1)
+        logits = self.policy_net(T.cat([states, self.pos_embed(action1s)], dim=-1))
+        if action_mask is not None:
+            logits = logits.masked_fill(~action_mask, -1e4)
+        return T.softmax(logits, dim=-1)
 
 class Critic(nn.Module):
 

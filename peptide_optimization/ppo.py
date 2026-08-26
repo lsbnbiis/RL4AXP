@@ -37,7 +37,7 @@ class PPO:
         self.actor2.load_model()
         self.critic.load_model()
 
-    def choose_actions(self, states: T.Tensor) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor]:
+    def choose_actions(self, states: T.Tensor, action_mask_fn=None) -> tuple[T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor, T.Tensor | None]:
 
         with T.no_grad():
 
@@ -47,7 +47,9 @@ class PPO:
             log_prob1s: T.Tensor = dists.log_prob(action1s) # (N, )
 
             action1s_ = action1s.to(DEVICE)
-            probs: T.Tensor = self.actor2(states, action1s_) # (N, D)
+            action_masks = action_mask_fn(action1s) if action_mask_fn is not None else None
+            mask_ = action_masks.to(DEVICE) if action_masks is not None else None
+            probs = self.actor2(states, action1s_, action_mask=mask_) # (N, D)
             dists = Categorical(probs.cpu())
             action2s: T.Tensor = dists.sample() # (N, )
             log_prob2s: T.Tensor = dists.log_prob(action2s) # (N, )
@@ -55,11 +57,11 @@ class PPO:
             pred_values: T.Tensor = self.critic(states)
             pred_values = pred_values.squeeze(1).cpu()
 
-        return action1s, action2s, log_prob1s, log_prob2s, pred_values
+        return action1s, action2s, log_prob1s, log_prob2s, pred_values, action_masks
     
     def learn(self) -> tuple[float, float, float, float, float]:
 
-        states, action1s, action2s, old_log_prob1s, old_log_prob2s, returns, gaes = self.buffer.get_train_data()
+        states, action1s, action2s, action_masks, old_log_prob1s, old_log_prob2s, returns, gaes = self.buffer.get_train_data()
 
         for _ in range(config.N_EPOCHS):
             actor1_epoch_loss = actor2_epoch_loss = critic_epoch_loss = 0
@@ -70,6 +72,7 @@ class PPO:
                 states_batch = states[batch_indices].to(DEVICE)
                 action1s_batch = action1s[batch_indices].to(DEVICE)
                 action2s_batch = action2s[batch_indices].to(DEVICE)
+                mask_batch = action_masks[batch_indices].to(DEVICE) if action_masks is not None else None
                 old_log_prob1s_batch = old_log_prob1s[batch_indices].to(DEVICE)
                 old_log_prob2s_batch = old_log_prob2s[batch_indices].to(DEVICE)
                 returns_batch = returns[batch_indices].to(DEVICE)
@@ -83,7 +86,7 @@ class PPO:
                 surrogate1 = T.clamp(ratio1, 1 - config.EPSILON, 1 + config.EPSILON)
                 actor1_loss = -T.min(ratio1 * gaes_batch, surrogate1 * gaes_batch).mean()
 
-                dists = Categorical(self.actor2(states_batch, action1s_batch))
+                dists = Categorical(self.actor2(states_batch, action1s_batch, action_mask=mask_batch))
                 new_log_prob2s_batch: T.Tensor = dists.log_prob(action2s_batch)
                 entropy_bonus2: T.Tensor = dists.entropy().mean()
 

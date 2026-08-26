@@ -60,7 +60,7 @@ reward += heuristic_final
 │  • Target Peptide：輸入起始序列                               │
 │  • Reward Models：勾選要最佳化的目標                          │
 │  • Weights：調整各 model 的 reward 權重                       │
-│    - AMP: 1.0  ACP: 0.6  AFP: 0.6  AVP: 0.6  HEM: 2.5      │
+│    - AMP: 1.0  ACP: 0.6  AFP: 0.6  AVP: 0.6  MRSA: 1.0  HEM: 2.5 │
 │  • HEM thr: 0.30  HEM penalty: 1.0                          │
 │  • N Parallels: 200  Time Horizon: 5                        │
 └──────────────────────┬──────────────────────────────────────┘
@@ -73,7 +73,7 @@ reward += heuristic_final
 │  • Status: Initializing → Training                          │
 │  • Monitor tab 觀察：                                        │
 │    - Cumulative Reward：應逐漸上升                           │
-│    - Model Probabilities：AMP/ACP/AFP/AVP 上升，HEM 下降     │
+│    - Model Probabilities：AMP/ACP/AFP/AVP/MRSA 上升，HEM 下降 │
 │    - Actor Losses：Buffer 累積到 10240 後開始出現             │
 │  • 建議跑 5,000 ~ 50,000 episodes 視收斂狀況決定             │
 └──────────────────────┬──────────────────────────────────────┘
@@ -143,7 +143,7 @@ AGENTS_LR       = 2e-5       # 學習率
 REWARD_WEIGHTS  = {          # 各 model reward 權重（可在 Dashboard 調整）
     "AMP": 1.0, "ACP": 0.6,
     "AFP": 0.6, "AVP": 0.6,
-    "HEM": 2.5,
+    "MRSA": 1.0, "HEM": 2.5,
 }
 HEM_THRESHOLD     = 0.3      # 超過此值開始額外懲罰
 HEM_PENALTY_SCALE = 1.0      # 懲罰強度係數

@@ -24,13 +24,14 @@ section[data-testid="stSidebar"] > div:first-child { width: 420px !important; }
 """, unsafe_allow_html=True)
 
 AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
-ALL_MODELS = ["ACP", "AFP", "AMP", "AVP", "HEM"]
+ALL_MODELS = ["ACP", "AFP", "AMP", "AVP", "HEM", "MRSA"]
 MODEL_DESCRIPTIONS = {
     "ACP": "Anticancer (maximise)",
     "AFP": "Antifungal (maximise)",
     "AMP": "Antimicrobial (maximise)",
     "AVP": "Antiviral (maximise)",
-    "HEM": "Hemolysis (minimise)"
+    "HEM": "Hemolysis (minimise)",
+    "MRSA": "Anti-MRSA activity (maximise)",
 }
 ENCODING_OPTIONS = ["One-Hot_Encoding", "Compressive_Sensing", "PepBERT-small", "PepBERT-large"]
 
@@ -185,12 +186,12 @@ with st.sidebar:
     st.divider()
     st.subheader("Reward Models")
     selected_models = []
-    _axp_cols = st.columns([1, 1, 1, 1, 1.4])
-    for i, m in enumerate(["ACP", "AFP", "AMP", "AVP"]):
+    _axp_cols = st.columns([1, 1, 1, 1, 1, 1.4])
+    for i, m in enumerate(["ACP", "AFP", "AMP", "AVP", "MRSA"]):
         with _axp_cols[i]:
             if st.checkbox(m, value=(m in config.REWARD_MODELS), key=f"chk_{m}", disabled=training_started):
                 selected_models.append(m)
-    with _axp_cols[4]:
+    with _axp_cols[5]:
         st.markdown("<div style='text-align:right;color:#888;padding-top:9px'>▲ maximise</div>", unsafe_allow_html=True)
     _hem_col, _hem_lbl = st.columns([4, 1.4])
     with _hem_col:

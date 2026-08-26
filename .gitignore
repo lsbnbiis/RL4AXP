@@ -25,3 +25,6 @@ hem_prediction/lysispeptica_models_thr10/p843_750_5041chatt_ugml2std.keras
 # OS
 .DS_Store
 Thumbs.db
+
+# Local-only notes (not for GitHub)
+docs/

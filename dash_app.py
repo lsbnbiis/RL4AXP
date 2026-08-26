@@ -1084,9 +1084,9 @@ def score_sequence(_, seq, conc, selected_models):
         try:
             if m == "HEM":
                 from hem_prediction.inference import get_hem_probs
-                val = float(get_hem_probs([seq], [float(conc or 50)])[0])
+                val = float(get_hem_probs([seq], [float(conc or 50)]).reshape(-1)[0])
             else:
-                val = float(_PROB_FNS[m]([seq])[0])
+                val = float(_PROB_FNS[m]([seq]).reshape(-1)[0])
             results[m] = val
         except Exception as exc:
             errors.append(f"{m}: {exc}")

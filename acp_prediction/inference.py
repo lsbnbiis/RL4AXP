@@ -64,10 +64,7 @@ def get_acp_probs(peptides: list[str]) -> T.Tensor:
     if len(peptides) == 0:
         return T.empty(0, dtype=T.float32, device=DEVICE)
     scores: np.ndarray = MODEL.predict(batch_encode_peps(peptides), verbose=0, batch_size=512)
-    res = T.tensor(scores, dtype=T.float32, device=DEVICE).squeeze(-1)
-    if len(peptides) == 1 and res.dim() == 0:
-        res = res.unsqueeze(0)
-    return res
+    return T.tensor(scores, dtype=T.float32, device=DEVICE).reshape(-1)
 
 if __name__ == "__main__":
 

@@ -35,10 +35,8 @@ def _get_probs_batch_dedup(prob_fn, peptides: list[str], device: T.device) -> T.
         return T.empty(0, device=device)
     unique_peps, inv = np.unique(peptides, return_inverse=True)
     if len(unique_peps) == len(peptides):
-        return prob_fn(peptides).to(device)
-    unique_probs = prob_fn(list(unique_peps)).to(device)
-    if unique_probs.dim() == 0:
-        unique_probs = unique_probs.unsqueeze(0)
+        return prob_fn(peptides).to(device).reshape(-1)
+    unique_probs = prob_fn(list(unique_peps)).to(device).reshape(-1)
     inv_t = T.tensor(inv, dtype=T.int64, device=device)
     return unique_probs[inv_t]
 

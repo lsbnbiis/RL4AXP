@@ -27,9 +27,12 @@ def batch_encode_peps(peptides: list[str]) -> np.ndarray:
 
 def get_amp_probs(peptides: list[str]) -> T.Tensor:
 
+    if len(peptides) == 0:
+        return T.empty(0, dtype=T.float32, device=DEVICE)
+
     amp_probs: np.ndarray = MODEL.predict(batch_encode_peps(peptides), verbose=0, batch_size=512)
 
-    return T.tensor(amp_probs, dtype=T.float32, device=DEVICE).squeeze()
+    return T.tensor(amp_probs, dtype=T.float32, device=DEVICE).reshape(-1)
 
 if __name__ == "__main__":
 

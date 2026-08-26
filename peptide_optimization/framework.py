@@ -206,8 +206,8 @@ class Framework:
                 mutations = []
 
             # Score both sequences
-            orig_scores    = {m: float(_PROB_FNS[m]([seq])[0])     for m in config.REWARD_MODELS}
-            refined_scores = {m: float(_PROB_FNS[m]([refined])[0]) for m in config.REWARD_MODELS}
+            orig_scores    = {m: float(_PROB_FNS[m]([seq]).reshape(-1)[0])     for m in config.REWARD_MODELS}
+            refined_scores = {m: float(_PROB_FNS[m]([refined]).reshape(-1)[0]) for m in config.REWARD_MODELS}
             orig_heur      = _heuristic_reward_single(seq)
             refined_heur   = _heuristic_reward_single(refined)
 
